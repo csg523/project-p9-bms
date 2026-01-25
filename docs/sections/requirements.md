@@ -35,11 +35,11 @@ Test Intent: Violation is detected if the time difference between two consecutiv
 
 ### SR-1 Threshold Protection
 The system shall immediately disable the charging and discharging outputs if any sensor reading exceeds the configured safety limits.\
-Test Intent: Violation is detected if the state does not change to DISCHARGING mode when unsafe conditions are simulated.
+Test Intent: Violation is detected if the output current/voltage does not drop to zero when unsafe conditions are simulated.
 
-### SR-2: Communication Timeout
-The system shall transition to the FAULT state if valid sensor data has not been received for longer than the defined timeout period.\
-Test Intent: Violation is detected if upon halting the data stream, system does not enter FAULT state.
+### SR-2: Alert System
+The system shall activate a visual indicator and audible alarm immediately when the system enters the FAULT state to warn the user of unsafe conditions.\
+Test Intent: Violation is detected if the visual or audible alarms do not activate upon the system entering the FAULT state.
 
 ### SR-3: Stale Sensor Data Handling
 The system shall detect missing, stale, or malformed sensor data and transition to a safe state.\
@@ -47,10 +47,10 @@ Test Intent: Violation is detected if invalid or missing data does not result in
 
 ### SR-4: Fault Latching
 The system shall remain in the FAULT state and prevent operation until a specific manual reset command is received.This prevents oscillation between states if a fault is intermittent, which causes stress to battery chemistry and contactors.\
-Test Intent: Violation is detected if after simulating conditions, system reverts back to normal state.
+Test Intent: Violation is detected if the system automatically reverts to IDLE/Normal state after the fault condition is removed, without receiving a Reset command.
 
 ### SR-5: Power-On Safe State
-The system shall initialize into the IDLE state with all power outputs disabled upon system power-up or reset. This prevents the system from accidentally conducting current immediately after a reboot before safety checks are complete and helps reducing in battery health deterioration.\
+The system shall initialize into the IDLE state with all power outputs disabled upon system power-up or reset. This prevents the system from accidentally conducting current immediately after a reboot before safety checks are complete and helps reducing battery health deterioration.\
 Test Intent: Violation is detected if upon entering power-on state, voltage or current is not zero.
 
 ## Non-Functional Requirements
@@ -59,10 +59,10 @@ Test Intent: Violation is detected if upon entering power-on state, voltage or c
 The system shall change the output state within 50 milliseconds of detecting a safety limit violation.
 Test Intent: Generate a fault condition (step input) and measure the time difference between the signal edge and the output pin changing state using an oscilloscope.
 
-### NFR-2: Alert System
-The system shall activate a visual LED indicator and an alarm when entering the FAULT state, within 20 ms of state transition.
-Test Intent: Violation is detected if the LED/Alarm hardware does not toggle to the "ON" state, when the system is in FAULT state, within 20ms.
+### NFR-2: Alert System Latency
+The system shall activate a visual LED indicator and an alarm within 20 ms of entering the FAULT state.
+Test Intent: Violation is detected if the LED/Alarm hardware does not toggle to the "ON" state within 20ms of the internal state transitioning to FAULT.
 
-### NFR-3: Cloud Logging
-The system shall publish battery metrics and system status to the cloud at an interval of 10 seconds.
-Test Intent: Violation is detected if a new data payload is not received within the 10-second window.
+### NFR-3: Logging Reliability
+The system shall successfully transmit battery metrics to the cloud with a success rate of >99% when the network is available.
+Test Intent: Run the system for 1 hour; violation is detected if more than 1% of expected packets are dropped or malformed.
