@@ -1,5 +1,4 @@
 ## Stakeholder Requirements
-
 Stakeholders require a system that:
 
 - Functions as a working embedded safety supervisor.
