@@ -34,7 +34,7 @@ Test Intent: Violation is detected if the time difference between two consecutiv
 ## Safety Requirements
 
 ### SR-1 Threshold Protection
-The system shall immediately disable the charging and discharging outputs if any sensor reading exceeds the configured safety limits.\
+The system shall within 50 millisecond disable the charging and discharging outputs if any sensor reading exceeds the configured safety limits.\
 Test Intent: Violation is detected if the output current/voltage does not drop to zero when unsafe conditions are simulated.
 
 ### SR-2: Alert System
@@ -66,3 +66,7 @@ Test Intent: Violation is detected if the LED/Alarm hardware does not toggle to 
 ### NFR-3: Logging Reliability
 The system shall successfully transmit battery metrics to the cloud with a success rate of >99% when the network is available.
 Test Intent: Run the system for 1 hour; violation is detected if more than 1% of expected packets are dropped or malformed.
+
+### NFR-4: Battery Status Indicator
+The system shall provide a visual status indicator that reflects the current battery operating mode: charging, discharging, or idle.
+Test Intent: Violation is detected if the visual indicator does not display the correct state within 100 ms of the system transitioning between charging, discharging, and idle modes.
