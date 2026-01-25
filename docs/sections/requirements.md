@@ -16,7 +16,7 @@ The system shall regulate the charging and discharging output to match the reque
 Test Intent: Violation is detected if the measured output voltage/current deviates from the setpoint by more than the allowed tolerance.
 
 ### FR-2 Internal Sensor Value Update
-The system shall update the sensor values only for the specific sensor fields present in the received UART frame.\
+The system shall update the sensor values only for the specific sensor fields present in the received data frame.\
 Test Intent: Violation is detected if the system changes the state upon receiving an empty data frame.
 
 ### FR-3 Stale Data Handling
@@ -46,17 +46,17 @@ The system shall detect missing, stale, or malformed sensor data and transition 
 Test Intent: Violation is detected if invalid or missing data does not result in fault detection and transition to a safe state.
 
 ### SR-4: Fault Latching
-The system shall remain in the FAULT state and prevent operation until a specific manual reset command is received.This prevents oscillation between states if a fault is intermittent, which causes stress to battery chemistry and contactors.\
+The system shall remain in the FAULT state and prevent operation until a specific manual reset command is received.\
 Test Intent: Violation is detected if the system automatically reverts to IDLE/Normal state after the fault condition is removed, without receiving a Reset command.
 
 ### SR-5: Power-On Safe State
-The system shall initialize into the IDLE state with all power outputs disabled upon system power-up or reset. This prevents the system from accidentally conducting current immediately after a reboot before safety checks are complete and helps reducing battery health deterioration.\
+The system shall initialize into the IDLE state with all power outputs disabled upon system power-up or reset.\
 Test Intent: Violation is detected if upon entering power-on state, voltage or current is not zero.
 
 ## Non-Functional Requirements
 
 ### NFR-1: Safety Response Latency
-The system shall change the output state within 50 milliseconds of detecting a safety limit violation.
+The system shall change the output state within 50 milliseconds of detecting a safety limit violation.\
 Test Intent: Generate a fault condition (step input) and measure the time difference between the signal edge and the output pin changing state using an oscilloscope.
 
 ### NFR-2: Alert System Latency
