@@ -32,17 +32,7 @@ stateDiagram-v2
     init_check --> OPERATIONAL: If Init Success
     init_check --> FAULT_HANDLER: If Init Fail
 
-    note right of INITIALIZATION
-        **Actuators:**
-        Main Relay: OPEN
-        FETs: OFF
-        LED: Solid ON
-        
-        **Safety Checks:**
-        1. Verify Memory Integrity (CRC)
-        2. Wait for stable UART Stream
-        3. Plausibility Check (T1 vs T2)
-    end note
+
 
     %% ==========================================
     %% SUPER STATE: OPERATIONAL
@@ -68,11 +58,7 @@ stateDiagram-v2
             CV_MODE --> BALANCING: Current Tapering
             BALANCING --> CHARGE_COMPLETE: Cells Balanced
             
-            note right of BALANCING
-                 Passive Balancing
-                 Bleed high cells
-                 Keep T < 45C
-            end note
+            
         }
 
         %% Sub-state: DISCHARGING
@@ -90,15 +76,6 @@ stateDiagram-v2
         DISCHARGING --> STANDBY_IDLE: Current ~ 0mA
     }
 
-    note right of OPERATIONAL
-        **Actuators:**
-        Main Relay: CLOSED
-        
-        **Behavior:**
-        Continuous Telemetry (MQTT)
-        Update SoC Model
-        Watchdog Tick
-    end note
 
     %% ==========================================
     %% SUPER STATE: FAULT HANDLING
@@ -119,22 +96,6 @@ stateDiagram-v2
         fault_fork --> HARD_LOCKOUT: Critical Limits
         HARD_LOCKOUT --> SOS_SIGNAL: Latch State
     }
-
-    note right of FAULT_HANDLER
-        **Priority Actions:**
-        1. Open Main Relay (IMMEDIATE)
-        2. Save Fault Context to Flash
-        3. Publish "Emergency" MQTT packet
-        
-        **Soft Faults:**
-        - Temp Warning (45C-60C)
-        - UART Timeout (1s-5s)
-        
-        **Hard Faults:**
-        - Temp Critical (>60C)
-        - Cell Over/Under Voltage
-        - T1/T2 Mismatch (>5C)
-    end note
 
     %% ==========================================
     %% GLOBAL TRANSITIONS (Safety Net)
