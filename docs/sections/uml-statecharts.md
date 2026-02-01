@@ -216,10 +216,11 @@ stateDiagram-v2
 
 ---
 ## Safety and Error Handling (Behavioral View)
-- Safety events override normal operation.
-- Infusion is always stopped before alarms are raised.
-- Power loss forces a transition to Safe_Stop from any state.
-- Recovery requires explicit caregiver action.
+- Fault events (Voltage, Current, Temp) immediately override normal operation.
+- Charge/Discharge relays are always opened *before* faults are logged or transmitted.
+- Communication loss (UART Watchdog) forces a transition to Hard Fault after timeout.
+- Power loss forces a transition to Safe Shutdown from any state (saving data to NVS).
+- Recovery from Hard Faults requires explicit user intervention (Manual Reset).
 
 ## Change Log
 | Date | Change          | Author  |
