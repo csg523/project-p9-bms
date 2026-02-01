@@ -57,6 +57,7 @@
 | UC-8        |Detect Sensor Failure |Battery Manager/Watchdog|Detect if UART data stream stops (communication loss) and trigger emergency stop.|
 ---
 
+
 ### Use Case Descriptions
 
 #### UC-1: Start Charging
