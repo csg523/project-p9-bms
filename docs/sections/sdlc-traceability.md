@@ -4,7 +4,7 @@
 > **Team:** Group-9
 
 ---
-
+ 
 ## 1. Key Sequence Diagrams
 
 ### SD-1: System Start-Up and Initialization
