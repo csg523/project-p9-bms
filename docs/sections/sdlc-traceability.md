@@ -1,7 +1,5 @@
 # SDLC Traceability – Battery Management System (BMS)
 
-> **Course:** CS G523 – Software for Embedded Systems  
-> **Student Name:** Nikhil Sharma  
 > **Project:** Battery Management System (BMS)  
 > **Team:** Group-9
 
