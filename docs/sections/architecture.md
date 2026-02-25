@@ -295,6 +295,140 @@ Furthermore, completely decoupling the Core Logic from the Hardware Abstraction 
 
 ---
 
+## Module: UartLink
+
+
+
+### Purpose and Responsibilities
+- Acts as the physical data bridge between the ESP32 and the external sensor array (or Python simulator).
+- Listens to the hardware Serial RX pin, buffers incoming bytes, and decodes the structured data frame.
+- Converts raw byte payloads into usable float values and applies timestamps.
+
+### Inputs
+- **Events received:** Hardware RX interrupt / continuous polling of `Serial.available()`.
+- **Data received:** Raw byte stream from the UART peripheral.
+- **Assumptions about inputs:** Assumes data arrives in a predefined frame format (e.g., Start Byte $\rightarrow$ Payload $\rightarrow$ Checksum $\rightarrow$ End Byte).
+
+### Outputs
+- **Events emitted:** Flags `newDataAvailable` when a complete, valid frame is successfully parsed.
+- **Commands issued:** None (Hardware reader only).
+- **Guarantees provided:** Corrupted, partial, or mismatched frames are silently discarded and will not corrupt the master state.
+
+### Internal State (Encapsulation)
+- **State variables:** `rxBuffer` (byte array), `bufferIndex`, and parsing state (e.g., `WAITING_FOR_START`, `READING_PAYLOAD`).
+- **Configuration parameters:** Baud Rate (e.g., 115200), RX/TX Pin definitions.
+- **Internal invariants:** The buffer index must never exceed the maximum defined frame size to prevent memory overflows.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. The hardware UART peripheral must be configured with the correct baud rate, parity, and stop bits.
+  2. The receive buffer must be explicitly flushed on boot to prevent reading residual garbage data left on the line.
+- **Shutdown behavior:** Closes the serial port and releases the hardware pins.
+- **Reset behavior:** Resets the `bufferIndex` to 0 and drops any currently accumulating partial frames.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Validates the Start/End marker bytes and verifies the calculated Checksum against the received Checksum.
+- **What invalid conditions are rejected:** Rejects frames where the checksum fails, dropping the entire packet to avoid writing noisy data to the system.
+- **What invariants are enforced:** Strict array bounds checking when adding bytes to the internal `rxBuffer`.
+- **Where are errors escalated:** Parse errors increment an internal `errorCount` for telemetry but are otherwise handled silently (the system relies on the `ProtectionEngine`'s data timeout to handle complete signal loss).
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| UART-01| Valid parsing | Inject perfectly formatted hex frame | Data written to struct, returns `true` |
+| UART-02| Checksum failure | Inject frame with manipulated payload | Frame dropped, returns `false` |
+| UART-03| Buffer overflow | Inject 100 continuous garbage bytes | Buffer rejects bytes past `MAX_LEN` |
+
+---
+
+## Module: Relays
+
+### Purpose and Responsibilities
+- Translates the logical commands from the Conductor into physical high/low electrical signals.
+- Drives the physical contactors that connect or disconnect the battery pack from the charger and the load.
+
+### Inputs
+- **Events received:** `setCharge()` and `setDischarge()` called by the Conductor.
+- **Data received:** Primitive boolean commands (`true` for closed, `false` for open).
+- **Assumptions about inputs:** Assumes the `ProtectionEngine` has already vetted the safety of the requested physical state.
+
+### Outputs
+- **Events emitted:** Toggles the hardware GPIO pins connected to the MOSFETs or relay drivers.
+- **Commands issued:** Physical 3.3V or 0V output.
+- **Guarantees provided:** A request to OPEN a relay is executed instantly, overriding any debounce logic.
+
+### Internal State (Encapsulation)
+- **State variables:** Cached logical state of the Charge and Discharge pins (to prevent redundant `digitalWrite` calls).
+- **Configuration parameters:** `PIN_RELAY_CHARGE`, `PIN_RELAY_DISCHARGE`.
+- **Internal invariants:** A logic `LOW` to the GPIO always equals a physically OPEN (safe) relay state.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. The designated GPIO pins must be configured as `OUTPUT` via the hardware registers.
+  2. Both relay pins must be explicitly driven `LOW` (OPEN) during initialization before the rest of the system is allowed to boot.
+- **Shutdown behavior:** Forces both pins `LOW` to physically disconnect the battery on shutdown.
+- **Reset behavior:** Defaults to the completely open, disconnected state.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** None. The HAL blindly trusts the Core Logic. 
+- **What invalid conditions are rejected:** Rejects attempts to write values other than `HIGH` or `LOW`.
+- **What invariants are enforced:** Pin caching prevents unnecessary voltage fluctuations on the control line.
+- **Where are errors escalated:** Hardware failures (e.g., welded contactors) cannot be detected by this module and must be caught by external current sensors in the `ProtectionEngine`.
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| REL-01 | Actuation | Command `setCharge(true)` | Hardware pin goes `HIGH` |
+| REL-02 | Fail-safe | Command `setDischarge(false)` | Hardware pin goes `LOW` |
+| REL-03 | Redundancy block | Command `setCharge(true)` twice | `digitalWrite` is only called once |
+
+---
+
+## Module: Display
+
+
+
+### Purpose and Responsibilities
+- Renders the current system state, voltages, and fault conditions onto a local OLED screen for physical inspection.
+- Provides immediate visual feedback to the operator without requiring network connectivity.
+
+### Inputs
+- **Events received:** `update()` called periodically by the Conductor.
+- **Data received:** `BmsRecord` master state (passed by `const reference`).
+- **Assumptions about inputs:** Assumes the screen is physically attached and undamaged.
+
+### Outputs
+- **Events emitted:** Transmits graphical framebuffer data over the I2C bus.
+- **Commands issued:** I2C draw commands (text, lines, shapes).
+- **Guarantees provided:** If the I2C bus hangs, the display module will timeout rather than freezing the `main.cpp` supervisory loop.
+
+### Internal State (Encapsulation)
+- **State variables:** I2C Framebuffer array (holds pixel data before pushing to screen), `lastUpdateTime`.
+- **Configuration parameters:** Screen dimensions (e.g., 128x64), I2C Address (e.g., `0x3C`), Font settings.
+- **Internal invariants:** The screen only fully redraws if a minimum refresh interval (e.g., 500ms) has passed, preventing I2C bus flooding.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. The hardware I2C bus (`Wire`) must be initialized with the correct SDA and SCL pins.
+  2. The OLED driver IC must successfully acknowledge the startup command sequence and return a `true` status.
+- **Shutdown behavior:** Clears the framebuffer to prevent screen burn-in and powers down the OLED matrix.
+- **Reset behavior:** Flushes the display buffer and restarts the I2C communication sequence.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Checks that the I2C device acknowledges requests.
+- **What invalid conditions are rejected:** If `display.begin()` fails, the module sets an internal `hardwareMissing` flag and bypasses all future draw commands to save cycle time.
+- **What invariants are enforced:** Data is strictly read-only (`const &`); the display module cannot accidentally corrupt system variables.
+- **Where are errors escalated:** Ignored structurally (a broken screen is not a battery safety risk); logged to Serial debug only.
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| DISP-01| Data formatting | Pass 4.20V in `BmsRecord` | Framebuffer updates with "V: 4.20" |
+| DISP-02| Missing hardware | Physically unplug I2C lines | `begin()` fails safely, main loop unblocked |
+| DISP-03| Refresh throttling | Call `update()` continuously | I2C transmission only occurs every 500ms |
+
+---
+
 ## Architectural Risk
 
 **Identified Risk:** Synchronous Blocking in the Supervisory Loop
