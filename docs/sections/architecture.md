@@ -117,6 +117,95 @@ Furthermore, completely decoupling the Core Logic from the Hardware Abstraction 
 
 ## Individual Module Specification
 
+## Module: NetManager
+
+
+
+### Purpose and Responsibilities
+- Manages the WiFi connection state asynchronously without blocking the main loop.
+- Synchronizes the system clock with an NTP server to provide accurate timestamps.
+- Packages the `BmsRecord` data into JSON format and publishes it to the cloud via MQTT for remote telemetry.
+
+### Inputs
+- **Events received:** `loop()` called continuously by the Conductor; `publishTelemetry()` called on a timer.
+- **Data received:** `BmsRecord` master state (passed by constant reference).
+- **Assumptions about inputs:** The WiFi and MQTT credentials provided in `Secrets.h` are correct and the network is in range.
+
+### Outputs
+- **Events emitted:** Publishes JSON formatted string payload to the defined MQTT topic.
+- **Commands issued:** None (Service module; does not control hardware).
+- **Guarantees provided:** Network operations (reconnecting, publishing) will timeout gracefully and will **never** block the main supervisory loop from executing its safety checks.
+
+### Internal State (Encapsulation)
+- **State variables:** `WiFiClient` object, `PubSubClient` object, connection status booleans.
+- **Configuration parameters:** SSID, Password, MQTT Broker IP, MQTT Port, NTP Server URL.
+- **Internal invariants:** Telemetry is only formatted and published if both WiFi and MQTT are currently flagged as connected.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. The hardware WiFi antenna must be powered and initialized by the ESP32 core.
+  2. The system must wait a maximum of 3000ms for an initial connection before yielding control back to the Conductor.
+- **Shutdown behavior:** Gracefully disconnects the MQTT client and drops the WiFi connection to prevent socket hangs on the broker.
+- **Reset behavior:** Automatically attempts to reconnect incrementally if the connection drops during runtime.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Checks the return status of `WiFi.status()` and `mqttClient.connected()` before attempting any network transmission.
+- **What invalid conditions are rejected:** Rejects requests to publish if the network layer is down (drops the packet rather than blocking).
+- **What invariants are enforced:** Strict non-blocking timeouts on all network calls.
+- **Where are errors escalated:** Errors are logged to the Serial monitor for debugging but do not trigger a BMS physical fault (a network drop is not a physical safety hazard).
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| NET-01 | Non-blocking connect | Supply invalid WiFi password | Module yields within 3s, system continues running |
+| NET-02 | Telemetry packaging | Supply `BmsRecord` with 4.2V | Generates valid JSON string `{"v1":4.20}` |
+| NET-03 | MQTT disconnect recovery | Drop physical router connection | Module sets `connected = false`, stops publishing cleanly |
+
+---
+
+## Module: StorageManager
+
+
+
+### Purpose and Responsibilities
+- Acts as a "Black Box" flight recorder for the BMS.
+- Saves critical system state (e.g., `FAULT_HARD` flags, State of Charge percentage) to Non-Volatile Storage (NVS) flash memory so it persists across hardware reboots.
+- Loads the saved state upon boot to prevent the system from re-closing the relays if it crashed due to a critical safety event.
+
+### Inputs
+- **Events received:** `saveState()` called by Conductor on state change; `loadState()` called on system boot.
+- **Data received:** Relevant subset of `BmsRecord` (Current State, Fault Flags).
+- **Assumptions about inputs:** Assumes the flash memory is not physically corrupted and has available sector space.
+
+### Outputs
+- **Events emitted:** Restores previously saved `BmsRecord` fields into memory on boot.
+- **Commands issued:** None.
+- **Guarantees provided:** A critical `FAULT_HARD` written to memory will survive a complete power loss and prevent accidental relay closure on the next boot.
+
+### Internal State (Encapsulation)
+- **State variables:** Cached copy of the last written fault state (to prevent redundant writes).
+- **Configuration parameters:** NVS Namespace identifier (e.g., `"bms_data"`), Storage Keys.
+- **Internal invariants:** Only initiates a flash write cycle if the new data differs from the cached data.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. The NVS partition must be successfully mounted via the `Preferences` API.
+  2. The module must verify the data integrity of the existing save file (checking for null or corrupted reads).
+- **Shutdown behavior:** Calls `end()` on the NVS preferences to cleanly close the flash memory handle.
+- **Reset behavior:** Can explicitly format/clear the NVS partition if the user holds the physical hardware reset button for >5 seconds.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Checks if the NVS `begin()` function returns true before attempting any reads/writes.
+- **What invalid conditions are rejected:** Rejects redundant write requests to protect the flash memory from "wear-out" (Flash memory degrades after ~100,000 writes).
+- **What invariants are enforced:** Data bounds checking (e.g., reading a stored fault code of `0xFF` which doesn't exist in our enum defaults to a safe lockdown).
+- **Where are errors escalated:** If flash memory fails to mount or is corrupted, it alerts the Conductor to default to `STATE_FAULT_HARD` as a fail-safe.
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| STO-01 | Fault persistence | Call `saveState(FAULT_OVP)`, reboot | `loadState()` returns `FAULT_OVP` |
+| STO-02 | Flash wear protection | Call `saveState(IDLE)` 100 times | NVS physical write function is only triggered once |
+| STO-03 | Corrupted read handling | Corrupt NVS sector, call `loadState()` | Returns safe default (`FAULT_HARD`), does not crash |
 
 
 ## Module: StateManager
