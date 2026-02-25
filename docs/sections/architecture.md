@@ -340,6 +340,91 @@ Furthermore, completely decoupling the Core Logic from the Hardware Abstraction 
 | DISP-02| Missing hardware | Physically unplug I2C lines | `begin()` fails safely, main loop unblocked |
 | DISP-03| Refresh throttling | Call `update()` continuously | I2C transmission only occurs every 500ms |
 
+## Module: StateManager
+
+### Purpose and Responsibilities
+- Determines the active operational phase of the battery (e.g., STATE_IDLE, STATE_CHARGING, STATE_PRE_CHARGE).
+- Applies mathematical hysteresis to prevent relay chattering (e.g., not re-entering charge mode until voltage drops significantly).
+- Enforces safe transition paths (e.g., preventing a jump from IDLE directly to DISCHARGING without passing through PRE_CHARGE).
+
+### Inputs
+- **Events received:** evaluateState() called synchronously by the Conductor every loop.
+- **Data received:** BmsRecord (specifically reads the FaultFlags, raw voltages, and current draw).
+- **Assumptions about inputs:** Assumes that the ProtectionEngine has already run in the current loop cycle and the FaultFlags are fully up-to-date.
+
+### Outputs
+- **Events emitted:** None (pure logic).
+- **Commands issued:** Updates the BmsState currentState enum inside the BmsRecord.
+- **Guarantees provided:** Will immediately force the state to STATE_FAULT_HARD if any critical fault flag is detected, overriding all other logic.
+
+### Internal State (Encapsulation)
+- **State variables:** None. It is a pure logic engine. It relies entirely on the state history stored inside the BmsRecord.
+- **Configuration parameters:** Hysteresis thresholds defined in Config.h (e.g., FULL_VOLTAGE = 4.20V, RECHARGE_VOLTAGE = 4.05V).
+- **Internal invariants:** A Fault state can only be cleared by a manual reset flag, never automatically.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. Must be provided a valid memory reference to the master BmsRecord structure to operate.
+  2. Must explicitly set the initial state to STATE_BOOT upon the first execution cycle.
+- **Shutdown behavior:** Defaults the target state to STATE_DEEP_SLEEP if low voltage is sustained.
+- **Reset behavior:** Evaluates the environment from scratch to safely transition from BOOT to IDLE or FAULT.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Validates the transition matrix (e.g., is the requested state change legally allowed?).
+- **What invalid conditions are rejected:** Rejects transitioning to STATE_CHARGING if the FaultFlags bitmask is non-zero.
+- **What invariants are enforced:** Hysteresis bounds (0.15V gap between full and recharge).
+- **Where are errors escalated:** Invalid state requests are ignored, and the system defaults to the safest known state (Idle/Open).
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| SM-01  | Hysteresis check | Input 4.15V while in FULL_IDLE | State remains FULL_IDLE (requires < 4.05V) |
+| SM-02  | Fault override | Set OVP fault flag while CHARGING | State immediately transitions to FAULT_HARD |
+| SM-03  | Pre-charge path | Request load while in IDLE | State transitions to PRE_CHARGE, not DISCHARGING |
+
+---
+
+## Module: ProtectionEngine
+
+### Purpose and Responsibilities
+- Validates all incoming sensor telemetry against the physical and chemical safety limits of the lithium-ion cells.
+- Acts as the primary safety gatekeeper, determining if a condition requires a warning (FAULT_SOFT) or an immediate physical lockdown (FAULT_HARD).
+
+### Inputs
+- **Events received:** runDiagnostics() called synchronously by the Conductor every loop.
+- **Data received:** BmsRecord (Cell voltages, currents, dual temperatures, timestamps).
+- **Assumptions about inputs:** Sensor data may be stale, partial, or corrupted by electrical noise.
+
+### Outputs
+- **Events emitted:** None (pure logic).
+- **Commands issued:** Calculates and writes a binary FaultFlags bitmask into the BmsRecord.
+- **Guarantees provided:** Will flag an absolute lockdown if any physical limit is breached or if sensor data is too old.
+
+### Internal State (Encapsulation)
+- **State variables:** None (Stateless pure function).
+- **Configuration parameters:** Hardware limits defined in Config.h (e.g., 4.25V OVP, 60°C OTP, 3000ms Data Timeout).
+- **Internal invariants:** Evaluation priority strictly evaluates Over-Voltage and Over-Temperature before under-voltage.
+
+### Initialization / Deinitialization
+- **Init requirements:** 1. Must verify that the configuration limit definitions in Config.h compile within physically possible ranges (e.g., OVP < 5.0V).
+  2. Must clear all legacy fault bitmasks to 0x00 in memory before beginning the first diagnostic pass.
+- **Shutdown behavior:** Safely outputs a full fault bitmask 0xFF if calculation fails.
+- **Reset behavior:** Recalculates all limits instantaneously; relies on StateManager to handle the actual recovery path.
+
+### Basic Protection Rules (Light Safeguards)
+- **What inputs are validated:** Timestamps of all incoming float values to ensure freshness.
+- **What invalid conditions are rejected:** Data older than 3000ms is rejected, triggering a FAULT_STALE_DATA flag.
+- **What invariants are enforced:** Delta Temperature ($\Delta T$) between charge and discharge sensors cannot exceed 15 degrees Celsius.
+- **Where are errors escalated:** The calculated bitmask is passed back to the Conductor, which orchestrates the physical relay disconnect.
+
+### Module-Level Tests
+
+| Test ID | Purpose | Stimulus | Expected Outcome |
+|--------|---------|----------|------------------|
+| PROT-01| Over-voltage trigger | Inject v1 = 4.30V | Returns bitmask 0x01 (OVP) |
+| PROT-02| Stale data watchdog | Inject timestamp $t - 5000ms$ | Returns bitmask 0x20 (Timeout) |
+| PROT-03| Delta Temp validation | Inject $T_{chg}=40, T_{dis}=20$ | Returns bitmask 0x10 (Delta-T Error) |
+
 ---
 
 ## Architectural Risk
