@@ -242,6 +242,7 @@ Furthermore, completely decoupling the Core Logic from the Hardware Abstraction 
 - **What invariants are enforced:** Hysteresis bounds (0.15V gap between full and recharge).
 - **Where are errors escalated:** Invalid state requests are ignored, and the system defaults to the safest known state (Idle/Open).
 
+
 ### Module-Level Tests
 
 | Test ID | Purpose | Stimulus | Expected Outcome |
